@@ -306,7 +306,7 @@ textarea:focus{outline:2px solid var(--steel);outline-offset:-1px}
   <div class="phase" id="ph2">
     <div class="phase-head"><span class="phase-num">PHASE 02</span><span class="phase-title">Customer 분석 — 페르소나와 고객여정</span><span class="phase-note">고객의 고통에서 기회 찾기</span></div>
     <div class="cards">
-      <div class="mcard" onclick="openModule('m22')"><span class="badge prompt">PROMPT</span><span class="micon">🎙️</span><span class="mt">가상 고객 인터뷰 봇</span><span class="md">결정된 페르소나가 되어 인터뷰에 응답합니다. 유도 질문을 하면 지적합니다.</span><span class="cmeta">⏱ 15분 · 조별 · 숨은 정보 캐내기</span></div>
+      <div class="mcard" onclick="openModule('m22')"><span class="badge prompt">PROMPT</span><span class="micon">🎙️</span><span class="mt">가상 고객 인터뷰 봇</span><span class="md">타깃 페르소나를 직접 인터뷰하며 가설을 확인합니다. 이 고객은 짧게 답하고, 결재 라인·예산 같은 숨은 정보는 잘 물어야만 내줍니다. 유도 질문은 지적당합니다.</span><span class="cmeta">⏱ 15분 · 조별 · 숨은 정보 캐내기</span></div>
             <div class="mcard" onclick="openBot('viewPanel')"><span class="badge bot">CHATBOT</span><span class="micon">⚖️</span><span class="mt">고객가치 검증 패널</span><span class="md">페르소나 카드·여정맵 사진과 여정 시사점을 넣으면, 고객 본인이 시사점부터 판정(Round 0)한 뒤 전략·재무와 크로스톡으로 전략 후보를 검증. 최종적으로 '차별화 전략 후보' 템플릿 표가 나옵니다.</span><span class="cmeta">⏱ 20분 · 라운드제 · 사진 입력</span></div>
     </div>
   </div>
@@ -449,7 +449,12 @@ textarea:focus{outline:2px solid var(--steel);outline-offset:-1px}
     </div>
 
     <div class="panel">
-      <div class="rec-panel">
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+        <span class="keydot" id="jdSheetDot" style="flex-shrink:0"></span>
+        <input type="text" class="f" id="jdSheetUrl" placeholder="기록 시트 연결 (선택) — Apps Script 웹앱 URL을 붙여넣으세요" style="font-size:12.5px;font-family:var(--mono)">
+        <button class="btn sm ghost" onclick="jdSaveSheetUrl()">저장</button>
+      </div>
+      <div class="rec-panel" style="margin-top:14px">
         <span class="rec-dot" id="jdDot"></span>
         <span class="rec-timer" id="jdTimer">00:00</span>
         <button class="btn" id="jdRecBtn" onclick="jdToggleRec()">🎤 발표 시작</button>
@@ -480,6 +485,7 @@ textarea:focus{outline:2px solid var(--steel);outline-offset:-1px}
       <div class="scorebars" id="jdBars"></div>
       <div class="v-body" id="jdVBody"></div>
     </div>
+    <div class="hint" id="jdSaveStatus" style="display:none"></div>
   </div>
 </div>
 
@@ -1376,6 +1382,7 @@ async function jdScorecard(){
       `[잘된 점]\n${(parsed.good||[]).map((g,i)=>`${i+1}. ${g}`).join("\n")}\n\n[보완점]\n${(parsed.improve||[]).map((g,i)=>`${i+1}. ${g}`).join("\n")}\n\n[종합] ${parsed.summary||""}`;
     document.getElementById('jdVerdict').classList.add('show');
     document.getElementById('jdVerdict').scrollIntoView({behavior:'smooth',block:'nearest'});
+    jdSaveRecord(parsed);
   }catch(e){
     document.getElementById('jdLog').insertAdjacentHTML('beforeend',`<div class="turn strat"><span class="who">SYSTEM</span>${esc(e.message)}</div>`);
   }finally{
@@ -1383,4 +1390,53 @@ async function jdScorecard(){
     document.getElementById('jdStartBtn').disabled=false;
   }
 }
+/* ===== 기록 시트 저장 (Google Sheets via Apps Script) ===== */
+let SHEET_URL="";
+try{ SHEET_URL=localStorage.getItem("dreamer_sheet_url")||""; }catch(_){}
+function jdRefreshSheetUI(){
+  document.getElementById('jdSheetDot').classList.toggle('on', !!SHEET_URL);
+  if(SHEET_URL) document.getElementById('jdSheetUrl').placeholder="기록 시트 연결됨 (변경하려면 새 URL 입력)";
+}
+function jdSaveSheetUrl(){
+  const v=document.getElementById('jdSheetUrl').value.trim();
+  if(!v) return;
+  SHEET_URL=v;
+  try{ localStorage.setItem("dreamer_sheet_url", v); }catch(_){}
+  document.getElementById('jdSheetUrl').value="";
+  jdRefreshSheetUI();
+}
+document.addEventListener('DOMContentLoaded', jdRefreshSheetUI);
+
+let jdLastRecord=null;
+function jdBuildRecord(parsed){
+  const g=k=>{const t=jdTranscript.find(x=>x.who===k);return t?t.text:"";};
+  const sc=parsed.scores||{};
+  const s1=sc["전략 명확성"]||0,s2=sc["3C 근거 연결"]||0,s3=sc["실행 구체성"]||0,s4=sc["기대성과 타당성"]||0,s5=sc["전달력"]||0;
+  return {
+    team:document.getElementById('jdTeam').value.trim()||"(미입력)",
+    duration:jdSec,
+    transcript:document.getElementById('jdText').value.trim(),
+    j_cso:g("CSO"), j_cfo:g("CFO"), j_cus:g("CUS"), j_cch:g("CCH"),
+    s1,s2,s3,s4,s5, total:s1+s2+s3+s4+s5,
+    good:parsed.good||[], improve:parsed.improve||[], summary:parsed.summary||""
+  };
+}
+async function jdSaveRecord(parsed){
+  const st=document.getElementById('jdSaveStatus');
+  jdLastRecord=jdBuildRecord(parsed);
+  if(!SHEET_URL){
+    st.style.display="block";
+    st.innerHTML="※ 기록 시트가 연결되지 않아 이 결과는 저장되지 않았습니다. 상단에 Apps Script URL을 연결하면 자동 저장됩니다.";
+    return;
+  }
+  st.style.display="block"; st.textContent="기록 시트에 저장 중…";
+  try{
+    const res=await fetch(SHEET_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(jdLastRecord)});
+    await res.text();
+    st.innerHTML=`✓ 기록 시트에 저장되었습니다 — ${esc(jdLastRecord.team)} · 합계 ${jdLastRecord.total}/25`;
+  }catch(e){
+    st.innerHTML=`저장 실패 (네트워크/URL 확인) — <button class="copybtn" onclick="jdRetrySave()">다시 저장</button>`;
+  }
+}
+function jdRetrySave(){ if(jdLastRecord){ const p={scores:{"전략 명확성":jdLastRecord.s1,"3C 근거 연결":jdLastRecord.s2,"실행 구체성":jdLastRecord.s3,"기대성과 타당성":jdLastRecord.s4,"전달력":jdLastRecord.s5},good:jdLastRecord.good,improve:jdLastRecord.improve,summary:jdLastRecord.summary}; jdSaveRecord(p); } }
 </script>
